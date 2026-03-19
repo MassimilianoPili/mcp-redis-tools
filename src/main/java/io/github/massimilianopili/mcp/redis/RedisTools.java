@@ -33,19 +33,19 @@ public class RedisTools {
     // ─── KV Generico ───────────────────────────────────────────────────────────
 
     @ReactiveTool(name = "redis_get",
-            description = "Legge il valore di una chiave Redis. Restituisce null se la chiave non esiste.")
+            description = "Reads the value of a Redis key. Returns null if the key does not exist.")
     public Mono<String> get(
-            @ToolParam(description = "Chiave Redis") String key) {
+            @ToolParam(description = "Redis key") String key) {
         return kv.opsForValue().get(key)
                 .onErrorResume(e -> Mono.just("ERRORE: " + e.getMessage()));
     }
 
     @ReactiveTool(name = "redis_set",
-            description = "Scrive un valore su una chiave Redis. Se ttlSeconds > 0, la chiave scade automaticamente.")
+            description = "Sets a value on a Redis key. If ttlSeconds > 0, the key expires automatically.")
     public Mono<String> set(
-            @ToolParam(description = "Chiave Redis") String key,
-            @ToolParam(description = "Valore da scrivere") String value,
-            @ToolParam(description = "TTL in secondi (0 = nessuna scadenza)", required = false) Integer ttlSeconds) {
+            @ToolParam(description = "Redis key") String key,
+            @ToolParam(description = "Value to store") String value,
+            @ToolParam(description = "TTL in seconds (0 = no expiration)", required = false) Integer ttlSeconds) {
         Mono<Boolean> op = (ttlSeconds != null && ttlSeconds > 0)
                 ? kv.opsForValue().set(key, value, Duration.ofSeconds(ttlSeconds))
                 : kv.opsForValue().set(key, value);
@@ -54,18 +54,18 @@ public class RedisTools {
     }
 
     @ReactiveTool(name = "redis_del",
-            description = "Elimina una chiave Redis. Restituisce il numero di chiavi eliminate.")
+            description = "Deletes a Redis key. Returns the number of keys deleted.")
     public Mono<String> del(
-            @ToolParam(description = "Chiave Redis da eliminare") String key) {
+            @ToolParam(description = "Redis key to delete") String key) {
         return kv.delete(key)
                 .map(n -> "Eliminate: " + n)
                 .onErrorResume(e -> Mono.just("ERRORE: " + e.getMessage()));
     }
 
     @ReactiveTool(name = "redis_keys",
-            description = "Elenca le chiavi che corrispondono a un pattern glob (es: 'user:*'). Max 100 risultati.")
+            description = "Lists keys matching a glob pattern (e.g. 'user:*'). Max 100 results.")
     public Mono<List<String>> keys(
-            @ToolParam(description = "Pattern glob, es: 'user:*' o '*'") String pattern) {
+            @ToolParam(description = "Glob pattern, e.g. 'user:*' or '*'") String pattern) {
         return kv.keys(pattern)
                 .take(100)
                 .collectList()
@@ -73,9 +73,9 @@ public class RedisTools {
     }
 
     @ReactiveTool(name = "redis_ttl",
-            description = "Restituisce il TTL rimanente di una chiave in secondi. -1 = nessuna scadenza, -2 = chiave non esistente.")
+            description = "Returns the remaining TTL of a key in seconds. -1 = no expiration, -2 = key does not exist.")
     public Mono<String> ttl(
-            @ToolParam(description = "Chiave Redis") String key) {
+            @ToolParam(description = "Redis key") String key) {
         return kv.getExpire(key)
                 .map(d -> {
                     if (d == null) return "-2";
@@ -86,9 +86,9 @@ public class RedisTools {
     }
 
     @ReactiveTool(name = "redis_incr",
-            description = "Incrementa atomicamente il valore numerico di una chiave. Se la chiave non esiste, parte da 1.")
+            description = "Atomically increments the numeric value of a key. If the key does not exist, starts from 1.")
     public Mono<String> incr(
-            @ToolParam(description = "Chiave Redis") String key) {
+            @ToolParam(description = "Redis key") String key) {
         return kv.opsForValue().increment(key)
                 .map(String::valueOf)
                 .onErrorResume(e -> Mono.just("ERRORE: " + e.getMessage()));
@@ -97,11 +97,11 @@ public class RedisTools {
     // ─── Inter-Claude Messaging (DB 5) ─────────────────────────────────────────
 
     @ReactiveTool(name = "claude_send",
-            description = "Invia un messaggio alla inbox di un'altra sessione Claude. " +
-                    "Il destinatario legge con claude_read usando la propria label. TTL automatico 24h.")
+            description = "Sends a message to another Claude session's inbox. " +
+                    "The recipient reads it via claude_read using their own label. Auto TTL 24h.")
     public Mono<String> claudeSend(
-            @ToolParam(description = "Label del destinatario (es: 'session-a', 'debugger')") String to,
-            @ToolParam(description = "Contenuto del messaggio") String content) {
+            @ToolParam(description = "Recipient label (e.g. 'session-a', 'debugger')") String to,
+            @ToolParam(description = "Message content") String content) {
         String key = "claude:inbox:" + to;
         return msg.opsForList().leftPush(key, content)
                 .flatMap(size -> msg.expire(key, Duration.ofHours(24)).thenReturn(size))
@@ -110,10 +110,10 @@ public class RedisTools {
     }
 
     @ReactiveTool(name = "claude_read",
-            description = "Legge e rimuove i messaggi dalla propria inbox. Operazione distruttiva: i messaggi letti non sono recuperabili.")
+            description = "Reads and removes messages from own inbox. Destructive operation: read messages are not recoverable.")
     public Mono<List<String>> claudeRead(
-            @ToolParam(description = "La propria label (es: 'session-a')") String myLabel,
-            @ToolParam(description = "Numero massimo di messaggi da leggere (default 10)", required = false) Integer count) {
+            @ToolParam(description = "Own label (e.g. 'session-a')") String myLabel,
+            @ToolParam(description = "Max number of messages to read (default 10)", required = false) Integer count) {
         String key = "claude:inbox:" + myLabel;
         int n = (count != null && count > 0) ? Math.min(count, 50) : 10;
         return msg.opsForList().range(key, 0, n - 1)
@@ -123,9 +123,9 @@ public class RedisTools {
     }
 
     @ReactiveTool(name = "claude_broadcast",
-            description = "Invia un messaggio a tutte le sessioni Claude che controllano il canale broadcast. TTL 1h.")
+            description = "Sends a message to all Claude sessions monitoring the broadcast channel. TTL 1h.")
     public Mono<String> claudeBroadcast(
-            @ToolParam(description = "Contenuto del messaggio broadcast") String content) {
+            @ToolParam(description = "Broadcast message content") String content) {
         String key = "claude:inbox:__broadcast__";
         return msg.opsForList().leftPush(key, content)
                 .flatMap(size -> msg.expire(key, Duration.ofHours(1)).thenReturn(size))
@@ -134,7 +134,7 @@ public class RedisTools {
     }
 
     @ReactiveTool(name = "claude_list_inboxes",
-            description = "Elenca le inbox attive (sessioni Claude con messaggi in attesa).")
+            description = "Lists active inboxes (Claude sessions with pending messages).")
     public Mono<Map<String, String>> claudeListInboxes() {
         return msg.keys("claude:inbox:*")
                 .flatMap(key -> msg.opsForList().size(key)
@@ -144,11 +144,33 @@ public class RedisTools {
     }
 
     @ReactiveTool(name = "claude_clear",
-            description = "Svuota la propria inbox eliminando tutti i messaggi in attesa.")
+            description = "Clears own inbox by deleting all pending messages.")
     public Mono<String> claudeClear(
-            @ToolParam(description = "La propria label") String myLabel) {
+            @ToolParam(description = "Own label") String myLabel) {
         return msg.delete("claude:inbox:" + myLabel)
                 .map(deleted -> deleted > 0 ? "Inbox '" + myLabel + "' svuotata" : "Inbox '" + myLabel + "' era già vuota")
+                .onErrorResume(e -> Mono.just("ERRORE: " + e.getMessage()));
+    }
+
+    // ─── Session Registry (Redis HASH claude:registry, DB 5) ──────────────────
+
+    @ReactiveTool(name = "claude_who",
+            description = "Lists active Claude sessions registered in the registry. " +
+                    "Each entry contains chatId, sessionId, project, role, startedAt.")
+    public Mono<Map<String, String>> claudeWho() {
+        return msg.opsForHash().entries("claude:registry")
+                .collectMap(e -> e.getKey().toString(), e -> e.getValue().toString())
+                .onErrorResume(e -> Mono.just(Map.of("ERRORE", e.getMessage())));
+    }
+
+    @ReactiveTool(name = "claude_register",
+            description = "Registers or updates the current session in the registry with role and capabilities. " +
+                    "The registry is a Redis HASH on DB 5 (claude:registry).")
+    public Mono<String> claudeRegister(
+            @ToolParam(description = "Session label (e.g. 'chat-31' or 'sub-31-research')") String label,
+            @ToolParam(description = "JSON with {chatId, sessionId, project, role, startedAt, capabilities}") String registrationJson) {
+        return msg.opsForHash().put("claude:registry", label, registrationJson)
+                .map(ok -> "Registrato: " + label)
                 .onErrorResume(e -> Mono.just("ERRORE: " + e.getMessage()));
     }
 }
