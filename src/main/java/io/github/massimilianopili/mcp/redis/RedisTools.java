@@ -105,6 +105,8 @@ public class RedisTools {
         String key = "claude:inbox:" + to;
         return msg.opsForList().leftPush(key, content)
                 .flatMap(size -> msg.expire(key, Duration.ofHours(24)).thenReturn(size))
+                .flatMap(size -> msg.convertAndSend("claude:notify:" + to, content)
+                        .thenReturn(size))
                 .map(size -> "Inviato a '" + to + "' (inbox size: " + size + ")")
                 .onErrorResume(e -> Mono.just("ERRORE: " + e.getMessage()));
     }
@@ -129,6 +131,8 @@ public class RedisTools {
         String key = "claude:inbox:__broadcast__";
         return msg.opsForList().leftPush(key, content)
                 .flatMap(size -> msg.expire(key, Duration.ofHours(1)).thenReturn(size))
+                .flatMap(size -> msg.convertAndSend("claude:notify:__broadcast__", content)
+                        .thenReturn(size))
                 .map(size -> "Broadcast inviato (coda size: " + size + ")")
                 .onErrorResume(e -> Mono.just("ERRORE: " + e.getMessage()));
     }
